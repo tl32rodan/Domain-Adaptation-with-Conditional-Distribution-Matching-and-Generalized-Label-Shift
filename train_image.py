@@ -349,9 +349,10 @@ if __name__ == "__main__":
                         'NANN', 'DANN', 'IWDAN', 'IWDANORACLE', 'CDAN', 'IWCDAN', 'IWCDANORACLE', 'CDAN-E', 'IWCDAN-E', 'IWCDAN-EORACLE'])
     parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
     parser.add_argument('--net', type=str, default='ResNet50', choices=["ResNet18", "ResNet34", "ResNet50", "ResNet101", "ResNet152", "VGG11", "VGG13", "VGG16", "VGG19", "VGG11BN", "VGG13BN", "VGG16BN", "VGG19BN", "AlexNet"], help="Network type. Only tested with ResNet50")
-    parser.add_argument('--dset', type=str, default='office-31', choices=['office-31', 'visda', 'office-home'], help="The dataset or source dataset used")
-    parser.add_argument('--s_dset_file', type=str, default='amazon_list.txt', help="The source dataset path list")
-    parser.add_argument('--t_dset_file', type=str, default='webcam_list.txt', help="The target dataset path list")
+    parser.add_argument('--dset', type=str, default='VIS_work', choices=['VIS_work', 'office-31', 'visda', 'office-home'], help="The dataset or source dataset used")
+    parser.add_argument('--s_dset_file', type=str, default='source_train_list.txt', help="The source dataset path list")
+    parser.add_argument('--t_dset_file', type=str, default='target_train_list.txt', help="The target dataset path list")
+    parser.add_argument('--test_t_dset_file', type=str, default='target_test_list.txt', help="The target dataset path list")
     parser.add_argument('--test_interval', type=int, default=500, help="interval of two continuous test phase")
     parser.add_argument('--snapshot_interval', type=int, default=10000, help="interval of two continuous output model")
     parser.add_argument('--output_dir', type=str, default='results', help="output directory")
@@ -420,7 +421,7 @@ if __name__ == "__main__":
         config["dataset"] = args.dset
         config["data"] = {"source":{"list_path":args.s_dset_file, "batch_size":36}, \
                           "target":{"list_path":args.t_dset_file, "batch_size":36}, \
-                          "test": {"list_path": args.t_dset_file, "dataset_path": "{}_test.pkl".format(args.t_dset_file), "batch_size": 4},
+                          "test": {"list_path": args.test_t_dset_file, "dataset_path": "{}_test.pkl".format(args.test_t_dset_file), "batch_size": 4},\
                           "root_folder":args.root_folder}
 
         config["lr_mult_im"] = args.lr_mult_im
@@ -440,6 +441,17 @@ if __name__ == "__main__":
             config["ratios_target"] = [1] * 31
             if args.dataset_mult_iw == 0:
                 args.dataset_mult_iw = 15
+        ###################### VIS Dataset Setting ######################
+        elif config["dataset"] == "VIS_work":
+            config["optimizer"]["lr_param"]["lr"] = 0.001 # optimal parameters
+            config["network"]["params"]["class_num"] = 4
+            config["ratios_source"] = [1] * 4
+            if args.ratio == 1:
+                config["ratios_source"] = [0.3] * 2 + [1] * 2
+            config["ratios_target"] = [1] * 4
+            if args.dataset_mult_iw == 0:
+                args.dataset_mult_iw = 1
+        #################################################################
         elif config["dataset"] == "visda":
             config["optimizer"]["lr_param"]["lr"] = 0.001 # optimal parameters
             config["network"]["params"]["class_num"] = 12
