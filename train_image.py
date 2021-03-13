@@ -16,6 +16,8 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
+from sklearn.metrics import confusion_matrix
+
 import data_list
 from data_list import ImageList, LoadedImageList, sample_ratios, write_list
 import loss
@@ -27,25 +29,37 @@ import random
 
 
 
-
-def image_classification_test_loaded(test_samples, test_labels, model, device='cpu'):
+def image_classification_test_loaded(test_samples, test_labels, model, device='cpu', num_labels=4):
     with torch.no_grad():
         test_loss = 0
         correct = 0
         len_test = test_labels.shape[0]
-        bs = 72
+        bs = 64
+        labels = np.arange(num_labels)
         for i in range(int(len_test / bs)):
             data, target = torch.Tensor(test_samples[bs*i:bs*(i+1), :, :, :]).to(config["device"]), test_labels[bs*i:bs*(i+1)]
             _, output = model(data)
             test_loss += nn.CrossEntropyLoss()(output, target).item()
             pred = torch.max(output, 1)[1]
             correct += pred.eq(target.data.view_as(pred)).sum().item()
+            # Confusion matrix
+            try:
+                cm += confusion_matrix(target.data.view_as(pred).cpu(), pred.cpu(), labels=labels)
+            except:
+                cm = confusion_matrix(target.data.view_as(pred).cpu(), pred.cpu(), labels=labels)
+
         # Last test samples
         data, target = torch.Tensor(test_samples[bs*(i+1):, :, :, :]).to(config["device"]), test_labels[bs*(i+1):]
         _, output = model(data)
         test_loss += nn.CrossEntropyLoss()(output, target).item()
         pred = torch.max(output, 1)[1]
         correct += pred.eq(target.data.view_as(pred)).sum().item()
+        cm += confusion_matrix(target.data.view_as(pred).cpu(), pred.cpu(), labels=labels)
+    print('-----------------------------------------------')
+    print(cm)
+    per_label_acc = np.diag(cm)/np.sum(cm,1)
+    print(per_label_acc, np.sum(per_label_acc)/num_labels)
+    print('-----------------------------------------------')
     accuracy = correct / len_test
     test_loss /= len_test * 10
     return accuracy
@@ -181,10 +195,9 @@ def train(config):
     class_weights = torch.tensor(
         1.0 / source_label_distribution, dtype=torch.float, requires_grad=False).to(config["device"])
 
-    gpus = config['gpu'].split(',')
-    if len(gpus) > 1:
-        ad_net = nn.DataParallel(ad_net, device_ids=[int(i) for i in gpus])
-        base_network = nn.DataParallel(base_network, device_ids=[int(i) for i in gpus])
+    if torch.cuda.device_count() > 1:
+        ad_net = nn.DataParallel(ad_net)
+        base_network = nn.DataParallel(base_network)
 
     ## train
     len_train_source = len(dset_loaders["source"])
@@ -198,11 +211,11 @@ def train(config):
     for i in range(config["num_iterations"]):
         if i % config["test_interval"] == config["test_interval"] - 1:
             base_network.train(False)
-            temp_acc = image_classification_test_loaded(test_samples, test_labels, base_network)
-            temp_model = nn.Sequential(base_network)
+            temp_acc = image_classification_test_loaded(test_samples, test_labels, base_network, num_labels=class_num)
+            
             if temp_acc > best_acc:
                 best_acc = temp_acc
-            log_str = "  iter: {:05d}, sec: {:.0f}, class: {:.5f}, da: {:.5f}, precision: {:.5f}".format(
+            log_str = "  iter: {:05d}, sec: {:.0f}, class_loss: {:.5f}, da_loss: {:.5f}, precision: {:.5f}".format(
                 i, time.time() - start_time_test, classifier_loss_value, transfer_loss_value, temp_acc)
             config["out_log_file"].write(log_str+"\n")
             config["out_log_file"].flush()
@@ -211,6 +224,12 @@ def train(config):
                 current_weights = [round(x, 4) for x in base_network.im_weights.data.cpu().numpy().flatten()]
                 # write_list(config["out_wei_file"], current_weights)
                 print(current_weights, flush=True)
+            ckpt_path = osp.join(config["save"],config["method"]+"_{}.pth".format(int(temp_acc)))
+            if torch.cuda.device_count() > 1:
+                torch.save(base_network.module.state_dict(), ckpt_path)
+            else:
+                torch.save(base_network.state_dict(), ckpt_path)
+
             start_time_test = time.time()
         if i % 500 == -1:
             print("{} iterations in {} seconds".format(i, time.time() - start_time), flush=True)
@@ -347,15 +366,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Conditional Domain Adversarial Network')
     parser.add_argument('method', type=str, choices=[
                         'NANN', 'DANN', 'IWDAN', 'IWDANORACLE', 'CDAN', 'IWCDAN', 'IWCDANORACLE', 'CDAN-E', 'IWCDAN-E', 'IWCDAN-EORACLE'])
-    parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
     parser.add_argument('--net', type=str, default='ResNet50', choices=["ResNet18", "ResNet34", "ResNet50", "ResNet101", "ResNet152", "VGG11", "VGG13", "VGG16", "VGG19", "VGG11BN", "VGG13BN", "VGG16BN", "VGG19BN", "AlexNet"], help="Network type. Only tested with ResNet50")
     parser.add_argument('--dset', type=str, default='VIS_work', choices=['VIS_work', 'office-31', 'visda', 'office-home'], help="The dataset or source dataset used")
+    parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--s_dset_file', type=str, default='source_train_list.txt', help="The source dataset path list")
     parser.add_argument('--t_dset_file', type=str, default='target_train_list.txt', help="The target dataset path list")
     parser.add_argument('--test_t_dset_file', type=str, default='target_test_list.txt', help="The target dataset path list")
     parser.add_argument('--test_interval', type=int, default=500, help="interval of two continuous test phase")
     parser.add_argument('--snapshot_interval', type=int, default=10000, help="interval of two continuous output model")
     parser.add_argument('--output_dir', type=str, default='results', help="output directory")
+    parser.add_argument('--save', type=str, default='save/0000_0000', help="model weight save directory")
     parser.add_argument('--root_folder', type=str, default=None, help="The folder containing the datasets")
     parser.add_argument('--lr', type=float, default=0.001,
                         help="learning rate")
@@ -374,8 +394,6 @@ if __name__ == "__main__":
         args.root_folder = 'data/{}/'.format(args.dset)
 
     if args.s_dset_file != args.t_dset_file:
-        # Set GPU ID
-        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
 
         # Set random number seed.
         np.random.seed(args.seed)
@@ -384,7 +402,6 @@ if __name__ == "__main__":
         # train config
         config = {}
         config['method'] = args.method
-        config["gpu"] = args.gpu_id
         config["device"] = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         config["num_iterations"] = args.num_iterations
         config["test_interval"] = args.test_interval
@@ -393,6 +410,9 @@ if __name__ == "__main__":
         config["output_path"] = args.output_dir
         if not osp.exists(config["output_path"]):
             os.system('mkdir -p '+ config["output_path"])
+        config["save"] = args.save
+        if not osp.exists(config["save"]):
+            os.system('mkdir -p '+ config["save"])
         config["out_log_file"] = open(osp.join(config["output_path"], "log.txt"), "w")
         config["out_wei_file"] = open(osp.join(config["output_path"], "log_weights.txt"), "w")
         if not osp.exists(config["output_path"]):
@@ -416,11 +436,11 @@ if __name__ == "__main__":
 
         config["optimizer"] = {"type":optim.SGD, "optim_params":{'lr':args.lr, "momentum":0.9, \
                             "weight_decay":0.0005, "nesterov":True}, "lr_type":"inv", \
-                            "lr_param":{"lr":args.lr, "gamma":0.001, "power":0.75} }
+                            "lr_param":{"lr":args.lr, "gamma":0.01, "power":0.9} }
 
         config["dataset"] = args.dset
-        config["data"] = {"source":{"list_path":args.s_dset_file, "batch_size":36}, \
-                          "target":{"list_path":args.t_dset_file, "batch_size":36}, \
+        config["data"] = {"source":{"list_path":args.s_dset_file, "batch_size":args.batch_size}, \
+                          "target":{"list_path":args.t_dset_file, "batch_size":args.batch_size}, \
                           "test": {"list_path": args.test_t_dset_file, "dataset_path": "{}_test.pkl".format(args.test_t_dset_file), "batch_size": 4},\
                           "root_folder":args.root_folder}
 
