@@ -224,7 +224,7 @@ def train(config):
                 current_weights = [round(x, 4) for x in base_network.im_weights.data.cpu().numpy().flatten()]
                 # write_list(config["out_wei_file"], current_weights)
                 print(current_weights, flush=True)
-            ckpt_path = osp.join(config["save"],config["method"]+"_{}.pth".format(int(temp_acc)))
+            ckpt_path = osp.join(config["save"],config["method"]+"_{}.pth".format(int(temp_acc*100)))
             if torch.cuda.device_count() > 1:
                 torch.save(base_network.module.state_dict(), ckpt_path)
             else:
@@ -418,7 +418,8 @@ if __name__ == "__main__":
         if not osp.exists(config["output_path"]):
             os.mkdir(config["output_path"])
 
-        config["prep"] = {'params':{"resize_size":256, "crop_size":224, 'alexnet':False}}
+        #config["prep"] = {'params':{"resize_size":256, "crop_size":224, 'alexnet':False}}
+        config["prep"] = {'params':{"resize_size":256, 'alexnet':False}}
         config["loss"] = {"trade_off":args.trade_off}
         if "AlexNet" in args.net:
             config["prep"]['params']['alexnet'] = True
@@ -436,7 +437,7 @@ if __name__ == "__main__":
 
         config["optimizer"] = {"type":optim.SGD, "optim_params":{'lr':args.lr, "momentum":0.9, \
                             "weight_decay":0.0005, "nesterov":True}, "lr_type":"inv", \
-                            "lr_param":{"lr":args.lr, "gamma":0.01, "power":0.9} }
+                            "lr_param":{"lr":args.lr, "gamma":0.005, "power":0.6} }
 
         config["dataset"] = args.dset
         config["data"] = {"source":{"list_path":args.s_dset_file, "batch_size":args.batch_size}, \
