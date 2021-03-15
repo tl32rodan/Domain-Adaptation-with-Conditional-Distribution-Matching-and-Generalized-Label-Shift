@@ -418,8 +418,8 @@ if __name__ == "__main__":
         if not osp.exists(config["output_path"]):
             os.mkdir(config["output_path"])
 
-        #config["prep"] = {'params':{"resize_size":256, "crop_size":224, 'alexnet':False}}
-        config["prep"] = {'params':{"resize_size":256, 'alexnet':False}}
+        config["prep"] = {'params':{"resize_size":256, "crop_size":224, 'alexnet':False}}
+        #config["prep"] = {'params':{"resize_size":256, 'alexnet':False}}
         config["loss"] = {"trade_off":args.trade_off}
         if "AlexNet" in args.net:
             config["prep"]['params']['alexnet'] = True

@@ -201,6 +201,12 @@ def transfer_classification(config):
                     test_samples, test_labels, nn.Sequential(
                         base_network, classifier_layer), device=device)
 
+            ckpt_path = osp.join(config["save"],config["method"]+"_{}.pth".format(int(temp_acc*100)))
+            if torch.cuda.device_count() > 1:
+                torch.save(base_network.module.state_dict(), ckpt_path)
+            else:
+                torch.save(base_network.state_dict(), ckpt_path)
+
             log_str = 'Iter: %d, mmd = %.4f, test_acc = %.3f' % (
                 i, mmd_meter.avg, test_acc)
             print(log_str)
@@ -301,14 +307,17 @@ if __name__ == "__main__":
     parser.add_argument('method', type=str, help="loss name",
                         choices=['JAN', 'IWJAN', 'IWJANORACLE', 'JAN_Linear', 'DAN', 'DAN_Linear', 'IWJAN_Linear', 'IWJANORACLE_Linear'])
     parser.add_argument('--gpu_id', type=str, nargs='?', default='0', help="device id to run")
-    parser.add_argument('--dset', type=str, default='office', choices=[
-                        'office-31', 'visda', 'office-home'], help="The dataset or source dataset used")
+    parser.add_argument('--dset', type=str, default='VIS_work', choices=[
+                        'VIS_work','office-31', 'visda', 'office-home'], help="The dataset or source dataset used")
+    parser.add_argument('--batch_size', type=int, default=64, help="batch_size")
     parser.add_argument('--s_dset_file', type=str, nargs='?',
                         default='train_list.txt', help="source data")
     parser.add_argument('--t_dset_file', type=str, nargs='?',
                         default='validation_list.txt', help="target data")
+    parser.add_argument('--test_t_dset_file', type=str, default='target_test_list.txt', help="The target dataset path list")
     parser.add_argument('--trade_off', type=float, nargs='?', default=1.0, help="trade_off")
     parser.add_argument('--output_dir', type=str, default='results', help="output directory")
+    parser.add_argument('--save', type=str, default='save/0000_0000', help="model weight save directory")
     parser.add_argument('--root_folder', type=str, default=None, help="The folder containing the dataset information")
     parser.add_argument('--seed', type=int, default='42', help="Random seed")
     parser.add_argument('--dataset_mult_iw', type=int, default='0',
@@ -334,6 +343,9 @@ if __name__ == "__main__":
     config["output_path"] = args.output_dir
     if not osp.exists(config["output_path"]):
         os.system('mkdir -p ' + config["output_path"])
+    config["save"] = args.save
+    if not osp.exists(config["save"]):
+        os.system('mkdir -p '+ config["save"])
     config["out_log_file"] = open(
         osp.join(config["output_path"], "log.txt"), "w")
     config["out_wei_file"] = open(
@@ -342,9 +354,9 @@ if __name__ == "__main__":
         os.mkdir(config["output_path"])
     config["prep"] = {'params': {"resize_size":256, "crop_size":224, 'alexnet':False}, 'mode':'RGB'}
     config["loss"] = {"name":args.method, "trade_off":args.trade_off }
-    config["data"] = {"source":{"list_path":args.s_dset_file, "batch_size":36}, \
-                      "target":{"list_path":args.t_dset_file, "batch_size":36}, \
-                      "test": {"list_path": args.t_dset_file, "dataset_path": "{}_test.pkl".format(args.t_dset_file), "batch_size": 4},
+    config["data"] = {"source":{"list_path":args.s_dset_file, "batch_size":args.batch_size}, \
+                      "target":{"list_path":args.t_dset_file, "batch_size":args.batch_size}, \
+                      "test": {"list_path": args.test_t_dset_file, "dataset_path": "{}_test.pkl".format(args.test_t_dset_file), "batch_size": 4}, \
                       "root_folder":args.root_folder}
     config["network"] = {"name":"ResNet50", "use_bottleneck":True, "bottleneck_dim":256, "ma":args.ma}
     config["optimizer"] = {"type": "SGD", "optim_params": {"lr": 1.0, "momentum": 0.9, "weight_decay": 0.0005,
